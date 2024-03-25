@@ -22,10 +22,47 @@ We need to find some clever way to use the given CFB and CBC decryption oracle t
 
 Block ciphers such as AES can only operate on fixed-size blocks of messages. Therefore, when encrypting a plaintext that is longer than the block size, a block cipher mode of operation needs to be used, such as GCM, CFB, and CBC. I used this Wikipedia article with excellent diagrams to learn how these modes work (https://en.wikipedia.org/wiki/Block_cipher_mode_of_operation), but I will also give explanations here.
 
-### GCM
+### GCM (Galois/counter mode)
 
-![GCM simplified diagram](images/gcm-simple.png)
+This paper in section 2.3 explains GCM encryption (https://csrc.nist.rip/groups/ST/toolkit/BCM/documents/proposedmodes/gcm/gcm-spec.pdf).
 
-GCM has other steps than what is shown in the diagram, but they are not important for this challenge.
+Let
+* $IV$ be the initialization vector/nonce,
+* $P_i$ the plaintext blocks,
+* $C_i$ the ciphertext blocks,
+* $Y_i$ the counters for each block,
+* $E_K(x)$ the result of encrypting the block $x$ with the key $K$,
+* $\mathrm{len}(x)$ the bit length of $x$, and
+* $\oplus$ the bitwise XOR operator.
 
-As explained in this paper in section 2.3 (https://csrc.nist.rip/groups/ST/toolkit/BCM/documents/proposedmodes/gcm/gcm-spec.pdf), if the nonce/IV is 12 bytes, then the initial value of the counter for block 0 is `IV || 0^31 || 1`, where `||` represents bit concatentation and `0^31` represents 31 0 bits. Since the nonce used in the PIN encryption is 12 bytes, it is easy for us to compute the initial counter value, which will be useful.
+GCM encryption is done by the following formulas:
+
+$$
+\begin{align*}
+
+Y_0 &= \begin{cases}
+    IV\ ||\ 0^{31} 1 & \text{if } \mathrm{len}(IV) = 96 \\
+    \ldots & \text{o.w.}
+\end{cases} \\
+
+Y_i &= Y_{i-1} + 1 \\
+
+C_i &= E_K(Y_i) \oplus P_i
+
+\end{align*}
+$$
+
+![GCM encryption simplified diagram](images/gcm-simple.png)
+
+GCM has other steps that are not described here, but they are not important for this challenge.
+
+GCM effectively turns the block cipher into a stream cipher by using the block cipher to generate a keystream. As in a stream cipher, the plaintext is bitwise XORed with the keystream to produce the ciphertext.
+
+The case where the IV is not 12 bytes has been omitted in the previous formula, since in this challenge, the nonce/IV used in the PIN encryption is 12 bytes. This makes it easy for us to compute the initial counter $Y_0$ value, which will be useful.
+
+### CFB (Cipher feedback)
+
+
+
+### CBC (Cipher block chaining)
+
