@@ -54,7 +54,7 @@ $$
 
 ![GCM encryption simplified diagram](images/gcm-simple.png)
 
-GCM has other steps that are not described here, but they are not important for this challenge.
+GCM has other steps related to authenticity that are not described here, but we will see that they are not necessary to decrypt the PIN.
 
 GCM effectively turns the block cipher into a stream cipher by using the block cipher to generate a keystream. As in a stream cipher, the plaintext is bitwise XORed with the keystream to produce the ciphertext.
 
