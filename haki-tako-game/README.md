@@ -39,16 +39,12 @@ GCM encryption is done by the following formulas:
 
 $$
 \begin{align*}
-
 Y_0 &= \begin{cases}
     IV\ ||\ 0^{31} 1 & \text{if } \mathrm{len}(IV) = 96 \\
     \ldots & \text{o.w.}
 \end{cases} \\
-
 Y_i &= Y_{i-1} + 1 \\
-
 C_i &= E_K(Y_i) \oplus P_i
-
 \end{align*}
 $$
 
