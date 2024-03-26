@@ -2,7 +2,7 @@
 
 ## Initial analysis
 
-Reading the provided code, we can see that when we connect to the server,
+We are given `challenge_server.py` and `crypto.py`. Reading the provided code, we can see that when we connect to the server,
 
 1. A new random 256-byte PIN and 32-byte AES key are generated,
 2. The PIN is put inside a string `b'Your authentication code is..' + pin + b'. Do not tell anyone and you should keep it secret!'`,
@@ -153,7 +153,7 @@ The server does provide another form of decryption using the same key with CBC d
 
 ## Brute forcing using the CBC decryption oracle
 
-In CBC decryption, a ciphertext block $C_i$ is first decrypted with $D_K$, then XORed with the previous ciphertext block $C_{i-1}$. Observe that if we set a ciphertext block $C_i$ to a GCM block key, then the corresponding plaintext block $P_i$ will be the block counter $Y_i$ XORed with the previous ciphertext block $C_{i-1}$. If $C_{i-1}$ is set to all zero, then the XOR will effectively do nothing.
+In CBC decryption, a ciphertext block $C_i$ is first decrypted with $D_K$, then XORed with the previous ciphertext block $C_{i-1}$. Observe that if we set a ciphertext block $C_i$ to a GCM block key, then the corresponding plaintext block $P_i$ will be the block counter $Y_i$ XORed with the previous ciphertext block $C_{i-1}$. If $C_{i-1}$ is set to all zeros, then the XOR will effectively do nothing.
 
 ![CBC decryption attack, block key to block counter](images/cbc-decrypt-attack1.png)
 
@@ -163,7 +163,94 @@ Another clever observation is that we can obtain a partial block key by XORing a
 
 For each partial block key with two unknown bytes, we can check whether a block key guess is correct with the CBC decryption oracle by checking whether the resulting block counter is correct, and we can compute the correct block counter for each block with the nonce. For each partial block key, since there are two unknown bytes, and 256 possible values for each byte, we need only a maximum of $256^2 = 65536$ trials to find the correct block key. Once we have the correct block key, we can fully decrypt the corresponding ciphertext block!
 
-There is another problem, however. Notice that the server limits the number of requests per connection to 45k. If we are not careful with making decryption requests in this brute force attack, we will quickly exceed this limit, and the server will close the connection. Additionally, network requests are very slow, and we want to utilize each request as much as possible to save precious time - especially when you are desperately trying to get a flag 2 hours before a CTF competition ends.
+There is another problem, however. Notice that the server limits the number of requests per connection to 45000. If we are not careful with making decryption requests in this brute force attack, we will quickly exceed this limit, and the server will close the connection. Additionally, network requests are very slow, and we want to utilize each request as much as possible to save precious time - especially when you are desperately trying to get a flag 2 hours before a CTF competition ends, *and* the challenge server is in Japan while you are in the US.
 
-## Efficiencly using decryption requests
+## Efficiently using CBC decryption requests
 
+To use each request efficiently, we can put multiple trial block keys in a ciphertext input. My approach during the CTF event was to use two ciphertext blocks $C_i$ and $C_{i+1}$ for each trial block key, set $C_i$ to all zeros, and set $C_{i+1}$ to the trial block key.
+
+![CBC decryption attack efficient requests initial solution](images/cbc-decrypt-attack2.png)
+
+Each request has a maximum of 1024 hex digits, equivalent to 512 bytes. The block size for AES is 16 bytes, so this approach can fit $512 / 32 = 16$ trial block keys per request. There are $65536$ possible block keys per block, so a maximum of $65536 / 16 = 4096$ requests are needed per block to find the correct block key. On average, we can expect to make half the number of requests before finding the right block key, and there are 17 blocks that contain the PIN, so we can expect to make roughly $2048 \times 17 = 34816$ requests to decrypt the PIN, which is under the requests limit of 45000.
+
+```py
+def xor(a: bytes, b: bytes) -> bytes:
+    return bytes([x ^ y for x, y in zip(a, b)])
+
+# ...
+
+plaintext_parts = []
+
+for block_idx in range(1, 1 + 16 + 1):
+    # ... Previous code for getting partial plaintext block ...
+    partial_pt_block = res[16:32]
+
+    # Brute force full block key using CBC
+    # Put multiple trials of block keys into one request for efficiency
+    partial_block_key = xor(ct_block, partial_pt_block)[:14]
+    block_key = None
+    num_trials = 256 ** 2 # 2 unknown bytes
+    trials_per_request = 512 // 32 # Max request length is 1024 hex digits -> 512 bytes, 2 16-byte blocks per trial
+    num_requests = num_trials // trials_per_request
+
+    for request_idx in range(num_requests):
+        if request_idx % 100 == 0:
+            print("request idx", request_idx)
+
+        # Make a request that has multiple trial block keys
+        # NOTE: could be more efficient by using every block for a trial block key, zero blocks not needed
+        input_bytes = bytearray()
+        trial_block_keys = []
+        for request_trial_idx in range(trials_per_request):
+            # trial_idx ranges from 0 to 256^2 - 1
+            trial_idx = request_trial_idx + trials_per_request * request_idx
+            trial_block_key = partial_block_key + bytes([trial_idx // 256, trial_idx % 256])
+            input_bytes.extend([0] * 16)
+            input_bytes.extend(trial_block_key)
+            trial_block_keys.append(trial_block_key)
+        
+        conn.send(input_bytes.hex().encode())
+        line = conn.recvline()
+        info = json.loads(line)
+        res_hex = info["ret"]
+        res = bytes.fromhex(res_hex)
+
+        # Search decryption result for the correct block counter to find block key
+        for request_trial_idx in range(trials_per_request):
+            trial_pt_block = res[request_trial_idx * 32 + 16 : (request_trial_idx + 1) * 32]
+            if trial_pt_block == block_counter:
+                block_key = trial_block_keys[request_trial_idx]
+                print("found block key", block_key)
+                break
+        if block_key != None:
+            break
+
+    pt_block = xor(ct_block, block_key)
+    print("plaintext block", pt_block)
+    plaintext_parts.append(pt_block)
+```
+
+Finally, we have decrypted the PIN. We send it to the server to get our hard-earned flag.
+
+```py
+print()
+plaintext = b"".join(plaintext_parts)
+print("plaintext", plaintext)
+print()
+pin = plaintext[13 : -3]
+print("pin", pin.hex())
+print()
+
+conn.send(pin.hex().encode())
+# This line contains the flag
+line = conn.recvline()
+print(line)
+```
+
+The brute force attack with the CBC decryption oracle took me about 1 hour and 20 minutes of running time. The long running time is likely caused by the high network latency between the US and Japan. I got the flag about 17 minutes before the CTF event ended. Testing the solver code by running the challenge server on my local machine proved to be very wise - otherwise, I would have discovered minor bugs in my solver code at the end of the brute force attack, completely wasting that time.
+
+In hindsight and after reading others' solutions, it is possible to use the CBC decryption even more efficiently. The zero blocks are not necessary, and each input ciphertext block can be used for a trial block key. Each result block $P_i$ would be XORed with the previous ciphertext block $C_{i-1}$, but this is easily undone by XORing the resulting $P_i$ with $C_{i-1}$ to get the potential block counter. This approach could cut the brute forcing time by half by making half the number of requests.
+
+## Closing remarks
+
+The full solver code can be found in `decrypt.py`. This challenge was pretty difficult for me, and had 48 solves in total. Previously learning about CBC bit flipping attacks, reading about block cipher modes of operation, and playing around in code with various modes of operation definitely helped me build the knowledge and intuition necessary for this challenge. Overall, the difficulty made it very fun to solve!
