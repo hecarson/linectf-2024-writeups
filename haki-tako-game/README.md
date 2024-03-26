@@ -1,6 +1,6 @@
 # haki-tako-game | LINE CTF 2024
 
-## Initial steps
+## Initial analysis
 
 Reading the provided code, we can see that when we connect to the server,
 
@@ -48,7 +48,7 @@ C_i &= E_K(Y_i) \oplus P_i
 \end{align*}
 $$
 
-![GCM encryption simplified diagram](images/gcm-encrypt-simple.png)
+![GCM encryption simplified](images/gcm-encrypt-simple.png)
 
 GCM has other steps related to authenticity that are not described here, but we will see that they are not necessary to decrypt the PIN.
 
@@ -77,7 +77,7 @@ P_i &= C_i \oplus E_K(C_{i-1})
 \end{align*}
 $$
 
-![CFB decryption diagram](images/cfb-decrypt.png)
+![CFB decryption](images/cfb-decrypt.png)
 
 CFB is similar to GCM in how it also effectively turns the block cipher into a stream cipher.
 
@@ -99,15 +99,15 @@ P_i &= D_K(C_i) \oplus C_{i-1}
 \end{align*}
 $$
 
-![CBC decryption diagram](images/cbc-decrypt.png)
+![CBC decryption](images/cbc-decrypt.png)
 
 Unlike the other two modes, CBC does not turn the block cipher into a stream cipher.
 
 ## Using the CFB decryption oracle
 
-In CFB decryption, ciphertext blocks are XORed with the results of $E_K$ blocks. This inspires a clever idea: using CFB decryption, if we set a ciphertext block $C_2$ to be a GCM-encrypted ciphertext block that we want to decrypt, and set the previous ciphertext block $C_1$ to be the correct GCM block counter, then the resulting second plaintext block $P_2$ will be the decrypted block that we wanted.
+In CFB decryption, a ciphertext block is XORed with the result of an $E_K$ block. This inspires a clever idea: using CFB decryption, if we set a ciphertext block $C_2$ to be a GCM-encrypted ciphertext block that we want to decrypt, and set the previous ciphertext block $C_1$ to be the correct GCM block counter, then the resulting second plaintext block $P_2$ will be the decrypted block that we wanted.
 
-![CFB decryption attack diagram](images/cfb-decrypt-attack.png)
+![CFB decryption attack](images/cfb-decrypt-attack.png)
 
 It is possible for us to compute the correct block counter, because the nonce used in encrypting the PIN message is given to us, and the nonce is used to derive the first counter value $Y_0$.
 
@@ -135,7 +135,7 @@ for block_idx in range(1, 1 + 16 + 1):
     block_counter = nonce + (block_idx + 2).to_bytes(4)
     
     # Get partial plaintext block using CFB
-    # Null bytes after ct_block are for lengthening the input to make the server give CBC decryption
+    # Null bytes after ct_block are for lengthening the input to make the server do CBC decryption
     input_bytes = block_counter + ct_block + b"\x00" * (len(ciphertext) - 32)
     conn.send(input_bytes.hex().encode())
     line = conn.recvline()
@@ -152,4 +152,18 @@ However, a problem is that when we send ciphertext to the server to decrypt usin
 The server does provide another form of decryption using the same key with CBC decryption, and none of the resulting bytes are hidden. Perhaps it can be useful.
 
 ## Brute forcing using the CBC decryption oracle
+
+In CBC decryption, a ciphertext block $C_i$ is first decrypted with $D_K$, then XORed with the previous ciphertext block $C_{i-1}$. Observe that if we set a ciphertext block $C_i$ to a GCM block key, then the corresponding plaintext block $P_i$ will be the block counter $Y_i$ XORed with the previous ciphertext block $C_{i-1}$. If $C_{i-1}$ is set to all zero, then the XOR will effectively do nothing.
+
+![CBC decryption attack, block key to block counter](images/cbc-decrypt-attack1.png)
+
+Additionally, observe that if we have a full GCM block key for a ciphertext block $C_i$, then we can decrypt the block by XORing it with the block key to get the corresponding plaintext block $P_i$. Is there a way for us to find a full block key to fully decrypt a ciphertext block?
+
+Another clever observation is that we can obtain a partial block key by XORing a partial plaintext block with the corresponding ciphertext block. In our case, since the last two bytes of each plaintext block is unknown, only the last two bytes of each block key will be unknown. Is it feasible to brute force these two unknown bytes?
+
+For each partial block key with two unknown bytes, we can check whether a block key guess is correct with the CBC decryption oracle by checking whether the resulting block counter is correct, and we can compute the correct block counter for each block with the nonce. For each partial block key, since there are two unknown bytes, and 256 possible values for each byte, we need only a maximum of $256^2 = 65536$ trials to find the correct block key. Once we have the correct block key, we can fully decrypt the corresponding ciphertext block!
+
+There is another problem, however. Notice that the server limits the number of requests per connection to 45k. If we are not careful with making decryption requests in this brute force attack, we will quickly exceed this limit, and the server will close the connection. Additionally, network requests are very slow, and we want to utilize each request as much as possible to save precious time - especially when you are desperately trying to get a flag 2 hours before a CTF competition ends.
+
+## Efficiencly using decryption requests
 
