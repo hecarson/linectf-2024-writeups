@@ -1,5 +1,8 @@
 # haki-tako-game | LINE CTF 2024
 
+> [!NOTE]
+> If you see weird "Unable to render expression" errors, try opening the README.md file. https://github.com/hecarson/linectf-2024-writeups/blob/master/haki-tako-game/README.md
+
 ## Initial analysis
 
 We are given `challenge_server.py` and `crypto.py`. Reading the provided code, we can see that when we connect to the server,
