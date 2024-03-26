@@ -71,6 +71,8 @@ Let
 * $E_K(x)$ the result of encrypting the block $x$ with the key $K$, and
 * $\oplus$ the bitwise XOR operator.
 
+The use of block encryption for CFB decryption is not a typo.
+
 CFB decryption is done by the following formulas:
 
 $$
