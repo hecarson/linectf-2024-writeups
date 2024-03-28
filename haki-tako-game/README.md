@@ -140,7 +140,7 @@ for block_idx in range(1, 1 + 16 + 1):
     block_counter = nonce + (block_idx + 2).to_bytes(4)
     
     # Get partial plaintext block using CFB
-    # Null bytes after ct_block are for lengthening the input to make the server do CBC decryption
+    # Null bytes after ct_block are for lengthening the input to make the server do CFB decryption
     input_bytes = block_counter + ct_block + b"\x00" * (len(ciphertext) - 32)
     conn.send(input_bytes.hex().encode())
     line = conn.recvline()
@@ -214,6 +214,7 @@ for block_idx in range(1, 1 + 16 + 1):
             input_bytes.extend(trial_block_key)
             trial_block_keys.append(trial_block_key)
         
+        # Input is long enough to make server do CBC decryption
         conn.send(input_bytes.hex().encode())
         line = conn.recvline()
         info = json.loads(line)
